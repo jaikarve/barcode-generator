@@ -1,0 +1,16 @@
+{
+  "name": "barcode-generator",
+  "version": "0.0.5",
+  "description": "Generates barcodes for U of U PoC app",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Jai Karve",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.18.0",
+    "bwip-js": "^1.7.1",
+    "kinvey-flex-sdk": "^3.2.1"
+  }
+}
