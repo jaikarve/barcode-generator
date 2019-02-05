@@ -1,6 +1,6 @@
 {
   "name": "barcode-generator",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Generates barcodes for U of U PoC app",
   "main": "index.js",
   "scripts": {

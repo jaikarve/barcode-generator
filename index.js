@@ -1,40 +1,51 @@
 const sdk = require('kinvey-flex-sdk');
 const bwipjs = require('bwip-js');
 const axios = require('axios');
+const fs = require('fs');
 
-const util = require('util');
+const BLOB_URI = "https://baas.kinvey.com/blob/kid_SJBnnCQXN";
+const KINVEY_BASIC_AUTH = "Basic a2lkX1NKQm5uQ1FYTjo0ZmIyNWM5YmY3NTQ0NGQxYTljNDhmMWY2ZjFmOThkNQ==";
 
+async function storeBarcodeMetadata(eventName, eventDate) {
 
-function storeBarcodeMetadata(png, complete) {
-
-    let kvFileConfig = {
+    let kvFileMetadataConfig = {
         headers: {
-            "Authorization": "Basic a2lkX1NKQm5uQ1FYTjo0ZmIyNWM5YmY3NTQ0NGQxYTljNDhmMWY2ZjFmOThkNQ=="
+            "Authorization": KINVEY_BASIC_AUTH,
+            "X-Kinvey-Content-Type":"image/png",
+            "Content-Type":"application/json"
         }
     }
-    let kvFilePostData = {
-        "_filename": "sampleBarcode.png",
-        "myProperty": "some metadata",
-        "someOtherProperty": "some more metadata",
+
+    let kvFileMetadata = {
+        "_filename": `${eventName}-barcode.png`,
+        "eventName": eventName,
+        "eventDate": eventDate,
         "mimeType":"image/png"
     }
 
-    axios.post("https://baas.kinvey.com/blob/kid_SJBnnCQXN",
-        kvFilePostData, kvFileConfig)
-    .then((resp) => {
-        console.log("Resp: " + JSON.stringify(resp));
-        return complete().setBody({
-            "statusCode": 200
-        }).ok().done();
-        
-    })
-    .catch((err) => {
-        console.log("Error: " + JSON.stringify(err));
-        return complete().setBody({
-            "error":"invalid request"
-        }).badRequest().done();
-    })
+    return await axios.post(BLOB_URI, kvFileMetadata, kvFileMetadataConfig);
+}
 
+async function storeBarcodeInGCS(uploadUrl, rawBarcodePng) {
+    let gcsFileConfig = {
+        headers: {
+            "Content-Length": rawBarcodePng.length,
+            "Content-Type":"image/png"
+        }
+    }
+
+    return await axios.put(uploadUrl, rawBarcodePng, gcsFileConfig);
+}
+
+async function getBarcodePngUrl(fileId) {
+    let pngUrl = `${BLOB_URI}/${fileId}`;
+    let kvGetFileConfig = {
+        headers: {
+            "Authorization": KINVEY_BASIC_AUTH
+        }
+    }
+
+    return await axios.get(pngUrl, kvGetFileConfig);
 }
 
 sdk.service((err, flex) => {
@@ -48,60 +59,34 @@ sdk.service((err, flex) => {
         function(context, complete, modules){
             let requestBody = context.body;
 
+            console.log("Request body: " + JSON.stringify(requestBody));
+            
             bwipjs.toBuffer({
-                bcid:        'code128',       // Barcode type
-                text:        '0123456789',    // Text to encode
-                scale:       3,               // 3x scaling factor
-                height:      10,              // Bar height, in millimeters
-                includetext: true,            // Show human-readable text
-                textxalign:  'center',        // Always good to set this
-            }, function (err, png) {
+                bcid:        'qrcode',       // Barcode type
+                text:        requestBody.eventName
+            }, 
+            async function (err, png) {
                 if (err) {
                     console.log(`Error: ${err}`);
                     return complete().setBody(new Error(err)).badRequest().done();
-                } else {
-                    try {
-                        /*let barcodeMetaResponse = await 
-                            storeBarcodeMetadata(png);*/
-                        storeBarcodeMetadata(png, complete);
-                        /*
-                        console.log("Barcode Meta Response: " +
-                            JSON.stringify(barcodeMetaResponse));
-                        return complete().setBody({
-                            "statusCode": 200
-                        }).ok().done();*/
-                    }
-                    catch (err) {
-                        console.log("Err: " + JSON.stringify(err));
-                        return complete().setBody({
-                            "error":"invalid request"
-                        }).badRequest().done();
-                    }
-                    // `png` is a Buffer
-                    // png.length           : PNG file length
-                    // png.readUInt32BE(16) : PNG image width
-                    // png.readUInt32BE(20) : PNG image height
+                } 
+                try {
+                    let metadataResp = await storeBarcodeMetadata(requestBody.eventName, requestBody.eventDate);
+                    await storeBarcodeInGCS(metadataResp.data._uploadURL, png);
+                    let pngGCSUrl = await getBarcodePngUrl(metadataResp.data._id);
+                    console.log("Download URL: " + pngGCSUrl.data._downloadURL);
+                    return complete().setBody({
+                        "statusCode":200,
+                        "downloadURL":pngGCSUrl.data._downloadURL
+                    }).ok().done();
                 }
+                catch (error) {
+                    console.dir("Error: " + error);
+                    return complete().setBody({
+                        "error": "invalid request"
+                    }).badRequest().done();
+                }                
             });
-
-            //console.dir("File upload: " + context.body.fileUpload);
-
-            /*
-
-            if(requestBody == null) {
-                return complete().setBody({ "error": "must provide payload to convert"}).badRequest().done();
-            }
-
-            try {
-                let downloadResp = await storeVideoFile(requestBody.videoUrl, requestBody.orderId);
-                return complete().setBody({
-                    "statusCode":200,
-                    "downloadURL":downloadResp.data._downloadURL
-                }).ok().done();
-            }
-            catch (error) {
-                console.log("Error: " + error);
-            }*/
         }
     );
 });
